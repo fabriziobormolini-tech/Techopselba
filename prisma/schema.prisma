@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Certification {
+  id              String              @id @default(uuid())
+  flightNumber    String
+  flightDate      DateTime
+  passengerEmail  String              // stored hashed for privacy
+  airline         String
+  route           String
+  distanceKm      Int
+  delayHours      Float
+  delayReason     String?
+  claimAmount     Int                 // in euros
+  validityScore   Int                 // 0-100
+  confidence      Float               // 0-1
+  status          CertificationStatus @default(PENDING_REVIEW)
+  isPublic        Boolean             @default(true)
+  blockchainHash  String?
+  blockchainTx    String?
+  stripeSessionId String?             @unique
+  paidAt          DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  documents       Document[]
+  feedbacks       PassengerFeedback[]
+
+  @@index([airline])
+  @@index([status])
+  @@index([flightNumber, flightDate])
+}
+
+model Document {
+  id              String        @id @default(uuid())
+  certificationId String
+  type            DocumentType
+  fileName        String
+  storageKey      String        // S3 key or local path
+  ocrData         Json?         // extracted OCR fields
+  uploadedAt      DateTime      @default(now())
+
+  certification   Certification @relation(fields: [certificationId], references: [id], onDelete: Cascade)
+}
+
+model PassengerFeedback {
+  id              String           @id @default(uuid())
+  certificationId String
+  outcome         PaymentOutcome
+  respondedAt     DateTime         @default(now())
+  daysToPay       Int?
+  notes           String?
+
+  certification   Certification    @relation(fields: [certificationId], references: [id], onDelete: Cascade)
+}
+
+model AirlineStats {
+  id                   String   @id @default(uuid())
+  airlineCode          String   @unique
+  airlineName          String
+  totalCertifications  Int      @default(0)
+  validClaims          Int      @default(0)
+  paidClaims           Int      @default(0)
+  partialPayments      Int      @default(0)
+  deniedClaims         Int      @default(0)
+  avgPaymentDays       Float?
+  complianceScore      Int      @default(0)  // 0-100
+  lastUpdated          DateTime @default(now())
+}
+
+enum CertificationStatus {
+  PENDING_PAYMENT
+  PENDING_REVIEW
+  PROCESSING
+  VALID
+  INVALID
+  NEEDS_HUMAN_REVIEW
+}
+
+enum DocumentType {
+  BOARDING_PASS
+  BOOKING_CONFIRMATION
+  DELAY_NOTICE
+  OTHER
+}
+
+enum PaymentOutcome {
+  PAID_FULL
+  PAID_PARTIAL
+  DENIED
+  NO_RESPONSE
+}
