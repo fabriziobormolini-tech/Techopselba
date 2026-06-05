@@ -10,8 +10,18 @@ const flightProviderRaw = pick("FLIGHT_PROVIDER", "mock");
 const messagingProviderRaw = pick("MESSAGING_PROVIDER", "mock");
 const billingProviderRaw = pick("BILLING_PROVIDER", "mock");
 
+// On Vercel, derive the public URL automatically when APP_BASE_URL is unset.
+function resolveBaseUrl(): string {
+  const explicit = pick("APP_BASE_URL");
+  if (explicit) return explicit;
+  const vercel =
+    pick("VERCEL_PROJECT_PRODUCTION_URL") || pick("VERCEL_URL");
+  if (vercel) return `https://${vercel}`;
+  return "http://localhost:3000";
+}
+
 export const env = {
-  appBaseUrl: pick("APP_BASE_URL", "http://localhost:3000"),
+  appBaseUrl: resolveBaseUrl(),
   sessionSecret: pick("SESSION_SECRET", "dev-insecure-change-me"),
   cronSecret: pick("CRON_SECRET", "dev-cron-secret"),
 
