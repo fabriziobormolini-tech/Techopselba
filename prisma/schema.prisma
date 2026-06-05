@@ -1,0 +1,150 @@
+// Wayrd data model
+// SQLite for local/dev. For production set DATABASE_URL to Postgres and change
+// `provider` to "postgresql" (enums below are modelled as strings to stay
+// portable across both engines).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// A hotel using Wayrd.
+model Hotel {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  city           String?
+  // Reception desk WhatsApp/phone that receives staff alerts.
+  receptionPhone String?
+  timezone       String   @default("Europe/Rome")
+  locale         String   @default("it")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  users        User[]
+  flightWatches FlightWatch[]
+  subscription Subscription?
+
+  @@index([active])
+}
+
+// Staff/admin login. role = "ADMIN" (Wayrd backoffice) | "HOTEL" (hotel staff).
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         String   @default("HOTEL")
+  hotelId      String?
+  hotel        Hotel?   @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([hotelId])
+}
+
+// One monitored guest arrival. The heart of the product references this.
+model FlightWatch {
+  id        String @id @default(cuid())
+  hotelId   String
+  hotel     Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  guestName  String
+  guestPhone String
+  partySize  Int     @default(1)
+  notes      String?
+
+  // Flight identity
+  flightNumber String // normalized IATA, e.g. "FR1234"
+  // Local date of the flight (the scheduled departure day), ISO yyyy-mm-dd.
+  flightDate   String
+
+  // Normalized status, see lib/flights/types.ts FlightStatus.
+  status            String   @default("SCHEDULED")
+  scheduledArrival  DateTime?
+  estimatedArrival  DateTime?
+  actualArrival     DateTime?
+  arrivalAirport    String?
+  departureAirport  String?
+  terminal          String?
+  gate              String?
+  delayMinutes      Int      @default(0)
+
+  // Lifecycle: ACTIVE while we poll, DONE once arrived/cancelled & handled.
+  watchState String @default("ACTIVE") // ACTIVE | DONE | STOPPED
+
+  // De-duplication of notifications (last delay bucket / status we alerted on).
+  lastNotifiedStatus String?
+  lastNotifiedDelay  Int?
+  soonNotified       Boolean   @default(false)
+  lastPolledAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events   FlightStatusEvent[]
+  messages Message[]
+
+  @@index([hotelId, flightDate])
+  @@index([watchState])
+  @@index([flightNumber, flightDate])
+}
+
+// Append-only history of observed flight states (powers the dashboard timeline).
+model FlightStatusEvent {
+  id           String   @id @default(cuid())
+  watchId      String
+  watch        FlightWatch @relation(fields: [watchId], references: [id], onDelete: Cascade)
+  status       String
+  delayMinutes Int      @default(0)
+  estimatedArrival DateTime?
+  gate         String?
+  terminal     String?
+  // Human-readable summary of what changed.
+  summary      String?
+  // True when this transition triggered guest/reception messaging.
+  notable      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([watchId, createdAt])
+}
+
+// Every outbound/inbound message (WhatsApp).
+model Message {
+  id        String   @id @default(cuid())
+  watchId   String?
+  watch     FlightWatch? @relation(fields: [watchId], references: [id], onDelete: SetNull)
+
+  channel   String  @default("whatsapp")
+  direction String  @default("OUT") // OUT | IN
+  // Audience: GUEST | RECEPTION
+  audience  String  @default("GUEST")
+  toPhone   String
+  template  String? // template/key used
+  body      String
+  status    String  @default("QUEUED") // QUEUED | SENT | DELIVERED | READ | FAILED
+  providerId String?
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([watchId])
+  @@index([status])
+}
+
+// Hotel billing state (Stripe-backed, mockable).
+model Subscription {
+  id                 String  @id @default(cuid())
+  hotelId            String  @unique
+  hotel              Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  plan               String  @default("starter")
+  status             String  @default("trialing") // trialing | active | past_due | canceled
+  stripeCustomerId   String?
+  stripeSubscriptionId String?
+  currentPeriodEnd   DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
