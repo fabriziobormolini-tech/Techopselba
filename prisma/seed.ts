@@ -10,8 +10,10 @@ function hashPassword(password: string): string {
   return `${salt}:${hash}`;
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
+function dateOffset(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 async function main() {
@@ -49,21 +51,25 @@ async function main() {
   });
 
   // --- Demo flight watches (varied statuses via the mock provider) ----------
-  const flightDate = today();
+  // Spread across today + tomorrow so the dashboard shows a realistic mix of
+  // SCHEDULED / DELAYED / ACTIVE / LANDED regardless of the time of day.
   const watches = [
-    { guestName: "Mario Rossi", guestPhone: "+393331110001", flightNumber: "FR1234" },
-    { guestName: "Anna Bianchi", guestPhone: "+393331110002", flightNumber: "AZ602" },
-    { guestName: "John Smith", guestPhone: "+447700110003", flightNumber: "BA546" },
-    { guestName: "Lena Müller", guestPhone: "+491700110004", flightNumber: "LH231" },
+    { guestName: "Mario Rossi", guestPhone: "+393331110001", flightNumber: "FR1234", dayOffset: 0 },
+    { guestName: "Anna Bianchi", guestPhone: "+393331110002", flightNumber: "AZ602", dayOffset: 0 },
+    { guestName: "John Smith", guestPhone: "+447700110003", flightNumber: "BA546", dayOffset: 1 },
+    { guestName: "Lena Müller", guestPhone: "+491700110004", flightNumber: "LH231", dayOffset: 1 },
+    { guestName: "Sofia Costa", guestPhone: "+351910110005", flightNumber: "TP832", dayOffset: 1 },
   ];
 
   for (const w of watches) {
+    const { dayOffset, ...rest } = w;
+    const flightDate = dateOffset(dayOffset);
     const exists = await prisma.flightWatch.findFirst({
       where: { hotelId: hotel.id, flightNumber: w.flightNumber, flightDate },
     });
     if (!exists) {
       await prisma.flightWatch.create({
-        data: { ...w, hotelId: hotel.id, flightDate, partySize: 2 },
+        data: { ...rest, hotelId: hotel.id, flightDate, partySize: 2 },
       });
     }
   }
@@ -74,7 +80,7 @@ async function main() {
       "  Admin:      admin@wayrd.app / wayrd-admin\n" +
       "  Reception:  reception@demo-hotel.it / wayrd1234\n" +
       `  Check-in:   /h/demo-hotel/checkin\n` +
-      `  ${watches.length} voli demo per ${flightDate}.`,
+      `  ${watches.length} voli demo (oggi + domani).`,
   );
 }
 
